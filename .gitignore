@@ -33,6 +33,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env.local
 .env*.local
+.env
 
 # superpowers
 .superpowers/
@@ -44,4 +45,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .qodo
+
+# ia
 .claude
+.agents
+CLAUDE.local.md
