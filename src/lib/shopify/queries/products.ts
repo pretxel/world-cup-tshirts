@@ -1,8 +1,41 @@
+import { cacheLife, cacheTag } from 'next/cache'
 import { shopifyFetch } from '../client'
 import type { ShopifyProduct } from '../types'
 
-const PRODUCT_FRAGMENT = `
-  fragment ProductFragment on Product {
+// Fragmento ligero para listados (1 imagen, info básica)
+const PRODUCT_CARD_FRAGMENT = `
+  fragment ProductCardFragment on Product {
+    id
+    title
+    handle
+    priceRange {
+      minVariantPrice {
+        amount
+        currencyCode
+      }
+    }
+    images(first: 1) {
+      edges {
+        node {
+          url
+          altText
+        }
+      }
+    }
+    metafields(identifiers: [
+      { namespace: "custom", key: "confederacion" }
+      { namespace: "custom", key: "team" }
+      { namespace: "custom", key: "pais_emoji" }
+    ]) {
+      key
+      value
+    }
+  }
+`
+
+
+const PRODUCT_DETAIL_FRAGMENT = `
+  fragment ProductDetailFragment on Product {
     id
     title
     handle
@@ -13,7 +46,7 @@ const PRODUCT_FRAGMENT = `
         currencyCode
       }
     }
-    images(first: 4) {
+    images(first: 10) {
       edges {
         node {
           url
@@ -21,7 +54,7 @@ const PRODUCT_FRAGMENT = `
         }
       }
     }
-    variants(first: 20) {
+    variants(first: 100) {
       edges {
         node {
           id
@@ -40,6 +73,7 @@ const PRODUCT_FRAGMENT = `
     }
     metafields(identifiers: [
       { namespace: "custom", key: "confederacion" }
+      { namespace: "custom", key: "team" }
       { namespace: "custom", key: "pais_emoji" }
       { namespace: "custom", key: "tiempo_envio" }
     ]) {
@@ -51,35 +85,60 @@ const PRODUCT_FRAGMENT = `
 
 type GetProductsResponse = {
   products: {
-    edges: { node: ShopifyProduct }[]
+    edges: { node: ShopifyProduct; cursor: string }[]
+    pageInfo: {
+      hasNextPage: boolean
+      hasPreviousPage: boolean
+      endCursor: string | null
+      startCursor: string | null
+    }
   }
 }
 
 export async function getProducts(options?: {
   first?: number
+  after?: string
   query?: string
-}): Promise<ShopifyProduct[]> {
+}): Promise<{
+  products: ShopifyProduct[]
+  pageInfo: GetProductsResponse['products']['pageInfo']
+}> {
+  'use cache'
+  cacheTag('products')
+  cacheLife('hours')
+
   const data = await shopifyFetch<GetProductsResponse>({
     query: `
-      ${PRODUCT_FRAGMENT}
-      query GetProducts($first: Int!, $query: String) {
-        products(first: $first, query: $query) {
+      ${PRODUCT_CARD_FRAGMENT}
+      query GetProducts($first: Int!, $after: String, $query: String) {
+        products(first: $first, after: $after, query: $query) {
           edges {
+            cursor
             node {
-              ...ProductFragment
+              ...ProductCardFragment
             }
+          }
+          pageInfo {
+            hasNextPage
+            hasPreviousPage
+            endCursor
+            startCursor
           }
         }
       }
     `,
     variables: {
       first: options?.first ?? 50,
+      after: options?.after,
       query: options?.query,
     },
-    revalidate: 3600,
+    cache: 'force-cache',
   })
 
-  return data.products.edges.map((e) => e.node)
+  return {
+    products: data.products.edges.map((e) => e.node),
+    pageInfo: data.products.pageInfo,
+  }
 }
 
 type GetProductByHandleResponse = {
@@ -89,17 +148,25 @@ type GetProductByHandleResponse = {
 export async function getProductByHandle(
   handle: string
 ): Promise<ShopifyProduct | null> {
+  'use cache'
+  cacheTag('products', `product-${handle}`)
+  cacheLife({
+    stale: 3600,      // 1 hour - serve stale while revalidating
+    revalidate: 7200, // 2 hours - background revalidation
+    expire: 86400,    // 1 day - hard expiration
+  })
+
   const data = await shopifyFetch<GetProductByHandleResponse>({
     query: `
-      ${PRODUCT_FRAGMENT}
+      ${PRODUCT_DETAIL_FRAGMENT}
       query GetProductByHandle($handle: String!) {
         productByHandle(handle: $handle) {
-          ...ProductFragment
+          ...ProductDetailFragment
         }
       }
     `,
     variables: { handle },
-    revalidate: 3600,
+    cache: 'force-cache',
   })
 
   return data.productByHandle

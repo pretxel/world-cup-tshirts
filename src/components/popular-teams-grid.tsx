@@ -3,7 +3,7 @@ import { getProducts } from '@/lib/shopify/queries/products'
 import { formatPrice, extractMetafield } from '@/lib/shopify/utils'
 
 export async function PopularTeamsGrid() {
-  const products = await getProducts({ first: 6 })
+  const { products } = await getProducts({ first: 6 })
 
   if (products.length === 0) {
     return null
